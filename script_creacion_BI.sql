@@ -5,7 +5,7 @@ CREATE SCHEMA BI_R2D2_ARTURITO
 GO
 
 /************************************************************************************
- *	CREACION DIMENSIONES BASICAS SEGÚN ENUNCIADO
+ *	CREACION DIMENSIONES BASICAS SEGÃšN ENUNCIADO
  ************************************************************************************/
 
 CREATE TABLE BI_R2D2_ARTURITO.BI_TIEMPO(
@@ -94,6 +94,25 @@ CREATE TABLE BI_R2D2_ARTURITO.BI_DESCUENTO_POR_CATEGORIZACION(
 	FOREIGN KEY (id_tiempo) REFERENCES BI_R2D2_ARTURITO.BI_TIEMPO(id_tiempo)
 );
 GO
+
+---------VERIFICAR CAMBIOS DAI ------------------------------------
+-- ALMACENAMIENTO DE DATOS DE ENVIO
+CREATE TABLE BI_R2D2_ARTURITO.BI_HECHO_ENVIO(
+    id_envio INT PRIMARY KEY IDENTITY(0,1),
+    total_costo_envios DECIMAL(10,2) NULL,
+    id_sucursal INT NOT NULL,
+    id_tiempo INT NOT NULL,
+    id_rango_etario_cliente INT NOT NULL,
+    id_ubicacion_cliente INT NOT NULL,
+	cant_envios DECIMAL(10,2) NULL,
+	cant_envios_a_tiempo DECIMAL(10,2) NULL,
+    FOREIGN KEY (id_sucursal) REFERENCES BI_R2D2_ARTURITO.BI_SUCURSAL(id_sucursal),
+    FOREIGN KEY (id_tiempo) REFERENCES BI_R2D2_ARTURITO.BI_TIEMPO(id_tiempo),
+    FOREIGN KEY (id_rango_etario_cliente) REFERENCES BI_R2D2_ARTURITO.BI_RANGO_ETARIO(id_rango_etario),
+    FOREIGN KEY (id_ubicacion_cliente) REFERENCES BI_R2D2_ARTURITO.BI_UBICACION(id_ubicacion)
+);
+GO
+
 
 /************************************************************************************
  *	MIGRACIONES DE DATOS DE DIMENSIONES OBLIGATORIAS
@@ -329,10 +348,71 @@ CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS AS
 		BI_TI.id_tiempo
  END
  GO
+ -----------------------Migraciones Dai
+ CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_HECHO_ENVIO AS
+ BEGIN
+
+ 	INSERT INTO BI_R2D2_ARTURITO.BI_HECHO_ENVIO(
+	total_costo_envios,
+    id_sucursal,
+    id_tiempo,
+    id_rango_etario_cliente,
+    id_ubicacion_cliente,
+	cant_envios,
+	cant_envios_a_tiempo
+	)
+
+		  SELECT 
+			SUM(E.costo) as total_costo_envio,
+			BI_S.id_sucursal,
+			BI_T.id_tiempo,
+			BI_REC.id_rango_etario,
+			BI_U.id_ubicacion,
+			count(E.id_envio) as cant_envios,
+			SUM(
+				CASE WHEN E.fecha_programada = E.fecha_entrega THEN 1
+				-- fecha entrega no tiene hora, la tenemos como DATE y no DATETIME. Nos va a dar siempre el 100% de coincidencia. 
+			ELSE 0
+			END
+			)as cant_envios_a_tiempo  
+  
+
+		  FROM R2D2_ARTURITO.ENVIO E
+			INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_T
+			ON year(fecha_entrega) = BI_T.anio
+				and MONTH(fecha_entrega) = BI_T.mes
+				and DATEPART(QUARTER,fecha_entrega) = BI_T.cuatrimestre
+			INNER JOIN R2D2_ARTURITO.VENTA V
+				ON E.id_venta = V.id_venta
+			INNER JOIN R2D2_ARTURITO.SUCURSAL S
+				ON V.id_sucursal = S.id_sucursal
+			INNER JOIN BI_R2D2_ARTURITO.BI_SUCURSAL BI_S
+				ON BI_S.nombre = s.nombre
+			INNER JOIN R2D2_ARTURITO.CLIENTE C
+				ON C.id_cliente = E.id_cliente
+			INNER JOIN BI_R2D2_ARTURITO.BI_RANGO_ETARIO BI_REC
+				ON BI_R2D2_ARTURITO.ObtenerRangoEtario(C.fecha_nacimiento) = BI_REC.rango_etario
+			INNER JOIN R2D2_ARTURITO.DIRECCION D 
+				ON  C.id_direccion = D.id_direccion
+			INNER JOIN R2D2_ARTURITO.Localidad L
+				ON D.id_localidad = L.id_localidad
+			INNER JOIN BI_R2D2_ARTURITO.BI_UBICACION BI_U
+				ON BI_U.localidad = L.nombre 
+	
+		
+		GROUP BY 
+		  BI_T.id_tiempo,
+		  BI_S.id_sucursal,
+		  BI_REC.id_rango_etario,
+		  BI_U.id_ubicacion	
+	
+
+ END
+ GO
 /************************************************************************************
  * VISTA 1: Ticket Promedio mensual. 
- * Valor promedio de las ventas (en $) según la
- * localidad, año y mes. Se calcula en función de la sumatoria del importe de las
+ * Valor promedio de las ventas (en $) segÃºn la
+ * localidad, aÃ±o y mes. Se calcula en funciÃ³n de la sumatoria del importe de las
  * ventas sobre el total de las mismas.
  ************************************************************************************/
 
@@ -359,10 +439,10 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
 /************************************************************************************
  * VISTA 2: Cantidad unidades promedio: 
- * Cantidad promedio de artículos que se venden en función de los tickets según el 
- * turno para cada cuatrimestre de cada año. 
- * Se obtiene sumando la cantidad de artículos de todos los tickets correspondientes
- * sobre la cantidad de tickets. Si un producto tiene más de una unidad en un ticket,
+ * Cantidad promedio de artÃ­culos que se venden en funciÃ³n de los tickets segÃºn el 
+ * turno para cada cuatrimestre de cada aÃ±o. 
+ * Se obtiene sumando la cantidad de artÃ­culos de todos los tickets correspondientes
+ * sobre la cantidad de tickets. Si un producto tiene mÃ¡s de una unidad en un ticket,
  * para el indicador se consideran todas las unidades.
  ************************************************************************************/
 
@@ -385,7 +465,7 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 /************************************************************************************
  * VISTA 3: 
  * Porcentaje anual de ventas registradas por rango etario del empleado
- * según el tipo de caja para cada cuatrimestre. 
+ * segÃºn el tipo de caja para cada cuatrimestre. 
  * Se calcula tomando la cantidad de ventas correspondientes sobre el total de ventas anual.
  ************************************************************************************/
 
@@ -418,7 +498,7 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
 /************************************************************************************
  * VISTA 4: 
- * Cantidad de ventas registradas por turno para cada localidad según el mes de cada año.
+ * Cantidad de ventas registradas por turno para cada localidad segÃºn el mes de cada aÃ±o.
  ************************************************************************************/
 
   CREATE VIEW BI_R2D2_ARTURITO.CANTIDAD_VENTAS_POR_TURNO AS
@@ -447,8 +527,8 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
 /************************************************************************************
  * VISTA 5: 
- * Porcentaje de descuento aplicados en función del total de los tickets según el
- * mes de cada año.
+ * Porcentaje de descuento aplicados en funciÃ³n del total de los tickets segÃºn el
+ * mes de cada aÃ±o.
  ************************************************************************************/
 
  CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_DESCUENTOS_APLICADOS_POR_MES AS
@@ -469,8 +549,8 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
  /************************************************************************************
  * VISTA 6 (POR CATEGORIA): 
- * Las tres categorías de productos con mayor descuento aplicado a partir de
- * promociones para cada cuatrimestre de cada año.
+ * Las tres categorÃ­as de productos con mayor descuento aplicado a partir de
+ * promociones para cada cuatrimestre de cada aÃ±o.
  ************************************************************************************/
 
  CREATE VIEW BI_R2D2_ARTURITO.TOP_TRES_CATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE AS
@@ -493,8 +573,8 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
  /************************************************************************************
  * VISTA 6 (POR SUBCATEGORIA): 
- * Las tres categorías de productos con mayor descuento aplicado a partir de
- * promociones para cada cuatrimestre de cada año.
+ * Las tres categorÃ­as de productos con mayor descuento aplicado a partir de
+ * promociones para cada cuatrimestre de cada aÃ±o.
  ************************************************************************************/
 
   CREATE VIEW BI_R2D2_ARTURITO.TOP_TRES_SUBCATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE AS
@@ -515,6 +595,73 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 	ORDER BY 4 DESC
  GO
 
+
+ ---------VERIFICAR CAMBIOS DAI ------------------------------------
+ /* 7) Porcentaje de cumplimiento de envÃ­os en los tiempos programados por
+sucursal por aÃ±o/mes (desvÃ­o)*/
+
+ CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_ENVIOS_A_TIEMPO_PROGRAMADO_MESYANIO AS
+	SELECT
+		BI_SU.nombre as sucursal,
+		BI_T.mes as mes,
+		BI_T.anio as anio,
+		SUM(BI_HE.cant_envios) as cantidad_envios,
+		(SUM(BI_HE.cant_envios_a_tiempo)/SUM(BI_HE.cant_envios))*100 as porcentaje_cant_envios_a_tiempo
+
+	FROM BI_R2D2_ARTURITO.BI_HECHO_ENVIO BI_HE
+		INNER JOIN BI_R2D2_ARTURITO.BI_SUCURSAL BI_SU
+			ON BI_SU.id_sucursal = BI_HE.id_sucursal
+		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_T
+			ON BI_T.id_tiempo =BI_HE.id_tiempo
+
+	GROUP BY 
+	BI_SU.nombre,BI_T.mes,BI_T.anio
+
+ GO
+
+ /*
+ 8) Cantidad de envÃ­os por rango etario de clientes para cada cuatrimestre de
+cada aÃ±o.
+ */
+ CREATE VIEW BI_R2D2_ARTURITO.CANT_ENVIOS_XRANGOET_CLIENTE_XCUATRIMESTRE AS
+	SELECT
+		BI_T.cuatrimestre as cuatrimestre,
+		BI_T.anio as anio,
+		SUM(BI_HE.cant_envios)as cantidad_envios,
+		BI_RE.rango_etario
+
+	FROM BI_R2D2_ARTURITO.BI_HECHO_ENVIO BI_HE
+		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_T
+			ON BI_T.id_tiempo =BI_HE.id_tiempo
+		INNER JOIN BI_R2D2_ARTURITO.BI_RANGO_ETARIO BI_RE
+			ON BI_RE.id_rango_etario = BI_HE.id_rango_etario_cliente
+
+	GROUP BY 
+	BI_T.cuatrimestre,BI_T.anio,BI_RE.rango_etario
+GO
+
+/*
+9) Las 5 localidades (tomando la localidad del cliente) con mayor costo de envÃ­o.
+*/
+
+CREATE VIEW BI_R2D2_ARTURITO.CINCO_LOCALIDADES_MAYOR_COSTO_ENVIO AS
+	SELECT  TOP 5
+		BI_UB.localidad as localidad,
+		BI_UB.provincia as provincia,
+		SUM(total_costo_envios) as costo_de_envio
+
+	FROM BI_R2D2_ARTURITO.BI_HECHO_ENVIO BI_HE
+		INNER JOIN BI_R2D2_ARTURITO.BI_UBICACION BI_UB
+			ON BI_HE.id_ubicacion_cliente = BI_UB.id_ubicacion
+
+	GROUP BY
+	BI_UB.localidad,BI_UB.provincia
+	ORDER BY SUM(total_costo_envios)desc
+
+GO
+
+
+
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_TIEMPO;
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_UBICACION;
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_SUCURSAL;
@@ -525,6 +672,7 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_CATEGORIZACION_PRODUCTOS;
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS;
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_DESCUENTO_POR_CATEGORIZACION;
+ EXEC BI_R2D2_ARTURITO.BI_MIGRAR_HECHO_ENVIO;
 
  SELECT * FROM BI_R2D2_ARTURITO.TOP_TRES_CATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE;
  SELECT * FROM BI_R2D2_ARTURITO.TOP_TRES_SUBCATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE;
