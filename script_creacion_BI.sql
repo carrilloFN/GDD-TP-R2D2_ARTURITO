@@ -176,11 +176,11 @@ BEGIN
 END
 GO
 
-CREATE FUNCTION BI_R2D2_ARTURITO.CalcularPorcentaje (@total DECIMAL(12,4), @percentil DECIMAL(12,4))
+CREATE FUNCTION BI_R2D2_ARTURITO.CalcularPorcentaje (@total DECIMAL(20,4), @percentil DECIMAL(20,4))
 RETURNS DECIMAL(6,3)
 AS
 BEGIN
-	RETURN CAST( ((100*@total)/@percentil) AS DECIMAL(4,2));
+	RETURN CAST( ((100*@total)/@percentil) AS DECIMAL(6,3));
 END
 GO
 
@@ -618,9 +618,12 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 		BI_TI.anio AS [Anio],
 		BI_TI.mes AS [Mes],
 		BI_R2D2_ARTURITO.CalcularPorcentaje(
-			SUM(BI_V.total_promociones)+SUM(BI_V.total_descuentos),
-			SUM(total_venta)
-		) AS [Porcentaje Descuentos (%)]
+			SUM(BI_V.total_venta),
+			SUM(BI_V.total_promociones)+SUM(BI_V.total_descuentos)
+		) AS [Porcentaje Descuentos (%)],
+		SUM(BI_V.total_promociones) AS pro,
+		SUM(BI_V.total_descuentos) AS descu,
+		SUM(BI_V.total_venta) AS tot
 	FROM BI_R2D2_ARTURITO.BI_VENTA BI_V
 		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_TI
 			ON BI_V.id_tiempo = BI_TI.id_tiempo
