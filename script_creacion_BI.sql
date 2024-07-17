@@ -378,17 +378,15 @@ CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS AS
  -----------------------Migraciones Dai
  CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_HECHO_ENVIO AS
  BEGIN
-
  	INSERT INTO BI_R2D2_ARTURITO.BI_HECHO_ENVIO(
-	total_costo_envios,
-    id_sucursal,
-    id_tiempo,
-    id_rango_etario_cliente,
-    id_ubicacion_cliente,
-	cant_envios,
-	cant_envios_a_tiempo
+		total_costo_envios,
+		id_sucursal,
+		id_tiempo,
+		id_rango_etario_cliente,
+		id_ubicacion_cliente,
+		cant_envios,
+		cant_envios_a_tiempo
 	)
-
 		  SELECT 
 			SUM(E.costo) as total_costo_envio,
 			BI_S.id_sucursal,
@@ -397,13 +395,12 @@ CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS AS
 			BI_U.id_ubicacion,
 			count(E.id_envio) as cant_envios,
 			SUM(
-				CASE WHEN E.fecha_programada = E.fecha_entrega THEN 1
-				-- fecha entrega no tiene hora, la tenemos como DATE y no DATETIME. Nos va a dar siempre el 100% de coincidencia. 
-			ELSE 0
-			END
-			)as cant_envios_a_tiempo  
-  
-
+				CASE WHEN 
+						CONVERT(DATE,E.fecha_entrega) <= CONVERT(DATE,E.fecha_programada)
+						AND (DATEPART(HOUR, E.fecha_entrega) BETWEEN E.hora_inicio AND E.hora_fin) THEN 1
+					ELSE 0
+				END
+			) AS cant_envios_a_tiempo
 		  FROM R2D2_ARTURITO.ENVIO E
 			INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_T
 			ON year(fecha_entrega) = BI_T.anio
@@ -424,9 +421,7 @@ CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS AS
 			INNER JOIN R2D2_ARTURITO.Localidad L
 				ON D.id_localidad = L.id_localidad
 			INNER JOIN BI_R2D2_ARTURITO.BI_UBICACION BI_U
-				ON BI_U.localidad = L.nombre 
-	
-		
+				ON BI_U.localidad = L.nombre 	
 		GROUP BY 
 		  BI_T.id_tiempo,
 		  BI_S.id_sucursal,
@@ -684,7 +679,6 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
  ---------VERIFICAR CAMBIOS DAI ------------------------------------
  /* 7) Porcentaje de cumplimiento de envíos en los tiempos programados por
 sucursal por año/mes (desvío)*/
-
  CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_ENVIOS_A_TIEMPO_PROGRAMADO_MES_Y_ANIO AS
 	SELECT
 		BI_SU.nombre AS [Sucursal],

@@ -222,10 +222,10 @@ GO
 -- Tabla ENVIO
 CREATE TABLE R2D2_ARTURITO.ENVIO (
     id_envio INT PRIMARY KEY IDENTITY(0,1),
-    fecha_programada DATE NULL,
+    fecha_programada SMALLDATETIME NULL,
     hora_inicio SMALLINT NULL,
     hora_fin SMALLINT NULL,
-    fecha_entrega DATE NULL,
+    fecha_entrega SMALLDATETIME NULL,
     costo DECIMAL(10,2) NULL,
     id_estado_envio INT NOT NULL,
     id_cliente INT NOT NULL,
