@@ -113,6 +113,22 @@ CREATE TABLE BI_R2D2_ARTURITO.BI_HECHO_ENVIO(
 );
 GO
 
+CREATE TABLE BI_R2D2_ARTURITO.BI_PAGO(
+	id_pago INT PRIMARY KEY IDENTITY(0,1),
+	total_pago DECIMAL(10,2) NULL,
+	total_descuento_aplicado DECIMAL(10,2) NULL,
+	cuotas INT NULL,
+	id_rango_etario INT NOT NULL,
+	id_medio_pago INT NOT NULL,
+	id_sucursal INT NOT NULL,
+	id_tiempo INT NOT NULL,
+	FOREIGN KEY (id_rango_etario) REFERENCES BI_R2D2_ARTURITO.BI_RANGO_ETARIO(id_rango_etario),
+	FOREIGN KEY (id_medio_pago) REFERENCES BI_R2D2_ARTURITO.BI_MEDIO_PAGO(id_medio_pago),
+	FOREIGN KEY (id_sucursal) REFERENCES BI_R2D2_ARTURITO.BI_SUCURSAL(id_sucursal),
+	FOREIGN KEY (id_tiempo) REFERENCES BI_R2D2_ARTURITO.BI_TIEMPO(id_tiempo)
+);
+GO
+
 
 /************************************************************************************
  *	MIGRACIONES DE DATOS DE DIMENSIONES OBLIGATORIAS
@@ -409,6 +425,58 @@ CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS AS
 
  END
  GO
+
+ CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_PAGO AS
+ BEGIN
+	INSERT INTO BI_R2D2_ARTURITO.BI_PAGO(
+		total_pago,
+		total_descuento_aplicado,
+		cuotas,
+		id_rango_etario,
+		id_medio_pago,
+		id_sucursal,
+		id_tiempo
+	)
+	SELECT
+		SUM(P.monto) AS total_pago,
+		SUM(DESC_X_PAGO.descuento_aplicado) AS total_descuento_aplicado,
+		DP.cuotas AS cuotas,
+		BI_RE.id_rango_etario AS id_rango_etario,
+		BI_MP.id_medio_pago AS id_medio_pago,
+		BI_S.id_sucursal AS id_sucursal,
+		BI_TI.id_tiempo AS id_tiempo
+	FROM R2D2_ARTURITO.PAGO P
+		INNER JOIN R2D2_ARTURITO.DESCUENTO_X_PAGO DESC_X_PAGO
+			ON P.id_pago = DESC_X_PAGO.id_pago
+		INNER JOIN R2D2_ARTURITO.DETALLE_PAGO DP
+			ON P.id_detalle_pago = DP.id_detalle_pago
+		INNER JOIN R2D2_ARTURITO.CLIENTE C
+			ON DP.id_cliente = C.id_cliente
+		INNER JOIN BI_R2D2_ARTURITO.BI_RANGO_ETARIO BI_RE
+			ON BI_R2D2_ARTURITO.ObtenerRangoEtario(C.fecha_nacimiento) = BI_RE.rango_etario
+		INNER JOIN R2D2_ARTURITO.MEDIO_PAGO MP
+			ON P.id_medio_pago = MP.id_medio_pago
+		INNER JOIN BI_R2D2_ARTURITO.BI_MEDIO_PAGO BI_MP
+			ON MP.descripcion = BI_MP.descripcion
+		INNER JOIN R2D2_ARTURITO.VENTA V
+			ON P.id_venta = V.id_venta
+		INNER JOIN R2D2_ARTURITO.SUCURSAL S
+			ON V.id_sucursal = S.id_sucursal
+		INNER JOIN BI_R2D2_ARTURITO.BI_SUCURSAL BI_S
+			ON S.nombre = BI_S.nombre
+		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_TI
+			ON YEAR(P.fecha) = BI_TI.anio
+			AND BI_R2D2_ARTURITO.ObtenerCuatrimestre(P.fecha) = BI_TI.cuatrimestre
+			AND MONTH(P.fecha) = BI_TI.mes
+	GROUP BY
+		DP.cuotas,
+		BI_RE.id_rango_etario,
+		BI_MP.id_medio_pago,
+		BI_S.id_sucursal,
+		BI_TI.id_tiempo
+ END
+ GO
+
 /************************************************************************************
  * VISTA 1: Ticket Promedio mensual. 
  * Valor promedio de las ventas (en $) según la
@@ -547,7 +615,7 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 		BI_TI.mes
  GO
 
- /************************************************************************************
+/************************************************************************************
  * VISTA 6 (POR CATEGORIA): 
  * Las tres categorías de productos con mayor descuento aplicado a partir de
  * promociones para cada cuatrimestre de cada año.
@@ -571,7 +639,7 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 	ORDER BY 4 DESC
  GO
 
- /************************************************************************************
+/************************************************************************************
  * VISTA 6 (POR SUBCATEGORIA): 
  * Las tres categorías de productos con mayor descuento aplicado a partir de
  * promociones para cada cuatrimestre de cada año.
@@ -660,7 +728,73 @@ CREATE VIEW BI_R2D2_ARTURITO.CINCO_LOCALIDADES_MAYOR_COSTO_ENVIO AS
 
 GO
 
+/************************************************************************************
+ * VISTA 10: 
+ * Las 3 sucursales con el mayor importe de pagos en cuotas, según 
+ * el medio de pago, mes y año. 
+ * Se calcula sumando los importes totales de todas las ventas en cuotas.
+ ************************************************************************************/
+ CREATE VIEW BI_R2D2_ARTURITO.TOP_TRES_SUCURSALES_MAYOR_IMPORTE_PAGO_CUOTAS AS
+	SELECT TOP 3
+		BI_S.nombre AS Sucursal,
+		BI_TI.anio AS Anio,
+		BI_TI.mes AS Mes,
+		BI_MP.descripcion AS [Medio de Pago],
+		SUM(BI_P.total_pago) AS [Importe pago en Cuotas]
+	FROM BI_R2D2_ARTURITO.BI_PAGO BI_P
+		INNER JOIN BI_R2D2_ARTURITO.BI_SUCURSAL BI_S
+			ON BI_P.id_sucursal = BI_S.id_sucursal
+		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_TI
+			ON BI_P.id_tiempo = BI_TI.id_tiempo
+		INNER JOIN BI_R2D2_ARTURITO.BI_MEDIO_PAGO BI_MP
+			ON BI_P.id_medio_pago = BI_MP.id_medio_pago
+	WHERE BI_P.cuotas <> 0
+	GROUP BY
+		BI_S.nombre,
+		BI_TI.anio,
+		BI_TI.mes,
+		BI_MP.descripcion
+	ORDER BY 5 DESC
+ GO
 
+/************************************************************************************
+ * VISTA 11: 
+ * Promedio de importe de la cuota en función del rango etareo del cliente.
+ ************************************************************************************/
+ CREATE VIEW BI_R2D2_ARTURITO.IMPORTE_PROMEDIO_CUOTA_SEGUN_RANGO_ETARIO_CLIENTE AS
+	SELECT
+		BI_RE.rango_etario AS rango_etario_cliente,
+		AVG(BI_P.total_pago/BI_P.cuotas) AS [Importe promedio]
+	FROM BI_R2D2_ARTURITO.BI_PAGO BI_P
+		INNER JOIN BI_R2D2_ARTURITO.BI_RANGO_ETARIO BI_RE
+			ON BI_P.id_rango_etario = BI_RE.id_rango_etario
+	WHERE BI_P.cuotas <> 0
+	GROUP BY
+		BI_RE.rango_etario
+ GO
+
+/************************************************************************************
+ * VISTA 12: 
+ * Porcentaje de descuento aplicado por cada medio de pago en función del valor
+ * de total de pagos sin el descuento, por cuatrimestre. 
+ * Es decir, total de descuentos sobre el total de pagos más el total de descuentos.
+ ************************************************************************************/
+ CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_DESCUENTO_APLICADO_SEGUN_MEDIO_PAGO AS
+	SELECT
+		BI_MP.descripcion AS [Medio de Pago],
+		BI_TI.anio AS Anio,
+		BI_TI.cuatrimestre AS Cuatrimestre,
+		(100*SUM(BI_P.total_descuento_aplicado)/SUM(BI_P.total_pago + BI_P.total_descuento_aplicado)) AS [Porcentaje Descuento Aplicado]
+	FROM BI_R2D2_ARTURITO.BI_PAGO BI_P
+		INNER JOIN BI_R2D2_ARTURITO.BI_MEDIO_PAGO BI_MP
+			ON BI_P.id_medio_pago = BI_MP.id_medio_pago
+		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_TI
+			ON BI_P.id_tiempo = BI_TI.id_tiempo
+	GROUP BY
+		BI_MP.descripcion,
+		BI_TI.anio,
+		BI_TI.cuatrimestre
+ GO
 
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_TIEMPO;
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_UBICACION;
@@ -673,6 +807,4 @@ GO
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS;
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_DESCUENTO_POR_CATEGORIZACION;
  EXEC BI_R2D2_ARTURITO.BI_MIGRAR_HECHO_ENVIO;
-
- SELECT * FROM BI_R2D2_ARTURITO.TOP_TRES_CATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE;
- SELECT * FROM BI_R2D2_ARTURITO.TOP_TRES_SUBCATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE;
+ EXEC BI_R2D2_ARTURITO.BI_MIGRAR_PAGO;
