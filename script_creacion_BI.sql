@@ -129,9 +129,8 @@ CREATE TABLE BI_R2D2_ARTURITO.BI_PAGO(
 );
 GO
 
-
 /************************************************************************************
- *	MIGRACIONES DE DATOS DE DIMENSIONES OBLIGATORIAS
+ *	FUNCIONES
  ************************************************************************************/
 
 CREATE FUNCTION BI_R2D2_ARTURITO.ObtenerCuatrimestre (@fecha DATE)
@@ -150,6 +149,44 @@ BEGIN
     RETURN @cuatrimestre;
 END;
 GO
+
+CREATE FUNCTION BI_R2D2_ARTURITO.ObtenerRangoEtario (@fecha_nacimiento DATE)
+RETURNS VARCHAR(50)
+AS
+BEGIN
+	DECLARE @rango_etario VARCHAR(50);
+    DECLARE @edad INT;
+    
+    SET @edad = DATEDIFF(YEAR, @fecha_nacimiento, GETDATE());
+
+	IF (@edad < 25) BEGIN SET @rango_etario = '< 25' END
+	ELSE IF (@edad BETWEEN 25 AND 35) BEGIN SET @rango_etario = '25 - 35' END
+	ELSE IF (@edad BETWEEN 35 AND 50) BEGIN SET @rango_etario = '35 - 50' END
+	ELSE IF (@edad < 25) BEGIN SET @rango_etario = '> 50' END
+    
+    RETURN @rango_etario;
+END
+GO 
+
+CREATE FUNCTION BI_R2D2_ARTURITO.ObtenerHora (@fecha SMALLDATETIME)
+RETURNS TIME(0)
+AS
+BEGIN 
+    RETURN CAST(@fecha AS TIME(0));
+END
+GO
+
+CREATE FUNCTION BI_R2D2_ARTURITO.CalcularPorcentaje (@total DECIMAL(12,4), @percentil DECIMAL(12,4))
+RETURNS DECIMAL(6,3)
+AS
+BEGIN
+	RETURN CAST( ((100*@total)/@percentil) AS DECIMAL(4,2));
+END
+GO
+
+/************************************************************************************
+ *	MIGRACIONES DE DATOS DE DIMENSIONES OBLIGATORIAS
+ ************************************************************************************/
 
 CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_TIEMPO AS
 BEGIN
@@ -243,32 +280,6 @@ GO
 /************************************************************************************
  *	MIGRACIONES DE DATOS DE DIMENSIONES ADICIONALES
  ************************************************************************************/
-
-CREATE FUNCTION BI_R2D2_ARTURITO.ObtenerRangoEtario (@fecha_nacimiento DATE)
-RETURNS VARCHAR(50)
-AS
-BEGIN
-	DECLARE @rango_etario VARCHAR(50);
-    DECLARE @edad INT;
-    
-    SET @edad = DATEDIFF(YEAR, @fecha_nacimiento, GETDATE());
-
-	IF (@edad < 25) BEGIN SET @rango_etario = '< 25' END
-	ELSE IF (@edad BETWEEN 25 AND 35) BEGIN SET @rango_etario = '25 - 35' END
-	ELSE IF (@edad BETWEEN 35 AND 50) BEGIN SET @rango_etario = '35 - 50' END
-	ELSE IF (@edad < 25) BEGIN SET @rango_etario = '> 50' END
-    
-    RETURN @rango_etario;
-END
-GO 
-
-CREATE FUNCTION BI_R2D2_ARTURITO.ObtenerHora (@fecha SMALLDATETIME)
-RETURNS TIME(0)
-AS
-BEGIN 
-    RETURN CAST(@fecha AS TIME(0));
-END
-GO
 
 CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS AS
  BEGIN
@@ -486,10 +497,10 @@ CREATE PROCEDURE BI_R2D2_ARTURITO.BI_MIGRAR_VENTAS AS
 
 CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 	SELECT
-		BI_U.localidad AS Localidad,
-		BI_U.provincia AS Provincia,
-		BI_TI.anio AS Anio,
-		BI_TI.mes AS Mes,
+		BI_U.localidad AS [Localidad],
+		BI_U.provincia AS [Provincia],
+		BI_TI.anio AS [Anio],
+		BI_TI.mes AS [Mes],
 		SUM(BI_V.total_venta)/COUNT(*) AS [Promedio en Ventas]
 	FROM BI_R2D2_ARTURITO.BI_VENTA BI_V
 		INNER JOIN BI_R2D2_ARTURITO.BI_SUCURSAL BI_S
@@ -516,8 +527,8 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
  CREATE VIEW BI_R2D2_ARTURITO.CANTIDAD_UNIDADES_PROMEDIO AS
 	SELECT 
-		BI_TI.cuatrimestre AS Cuatrimestre,
-		CONCAT(BI_RTU.inicio,'-',BI_RTU.fin) AS Turno,
+		BI_TI.cuatrimestre AS [Cuatrimestre],
+		CONCAT(BI_RTU.inicio,'-',BI_RTU.fin) AS [Turno],
 		SUM(BI_V.cantidad_items_vendidos) / COUNT(*) AS [Promedio items Vendidos]
 	FROM BI_R2D2_ARTURITO.BI_VENTA BI_V
 		INNER JOIN BI_R2D2_ARTURITO.BI_RANGO_TURNOS BI_RTU
@@ -539,17 +550,20 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
  CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_ANUAL_VENTAS_POR_RANGO_ETARIO AS
 	SELECT
-		BI_TI.anio AS Anio,
-		BI_TI.cuatrimestre AS Cuatrimestre,
+		BI_TI.anio AS [Anio],
+		BI_TI.cuatrimestre AS [Cuatrimestre],
 		BI_TIC.descripcion AS [Tipo de Caja],
 		BI_RE.rango_etario AS [Rango Etario],
-		CAST((100.0 * COUNT(*)) / (
-			SELECT COUNT(*)
-			FROM BI_R2D2_ARTURITO.BI_VENTA
-				INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO
-					ON BI_VENTA.id_tiempo = BI_TIEMPO.id_tiempo
-			WHERE BI_TI.anio = BI_TIEMPO.anio
-		) AS DECIMAL(10,2)) [Porcentaje Anual Ventas]
+		BI_R2D2_ARTURITO.CalcularPorcentaje(
+			COUNT(*),
+			(
+				SELECT COUNT(*)
+				FROM BI_R2D2_ARTURITO.BI_VENTA
+					INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO
+						ON BI_VENTA.id_tiempo = BI_TIEMPO.id_tiempo
+				WHERE BI_TI.anio = BI_TIEMPO.anio
+			)
+		) AS [Porcentaje Anual Ventas (%)]
 	FROM BI_R2D2_ARTURITO.BI_VENTA BI_V
 		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_TI
 			ON BI_V.id_tiempo = BI_TI.id_tiempo
@@ -571,10 +585,10 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
   CREATE VIEW BI_R2D2_ARTURITO.CANTIDAD_VENTAS_POR_TURNO AS
 	SELECT 
-		CONCAT(BI_RTU.inicio,'-',BI_RTU.fin) AS Turno,
-		BI_U.localidad AS Localidad,
-		BI_TI.anio AS Anio,
-		BI_TI.mes AS Mes,
+		CONCAT(BI_RTU.inicio,'-',BI_RTU.fin) AS [Turno],
+		BI_U.localidad AS [Localidad],
+		BI_TI.anio AS [Anio],
+		BI_TI.mes AS [Mes],
 		COUNT(*) AS [Cantidad de Ventas]
 	FROM BI_R2D2_ARTURITO.BI_VENTA BI_V
 		INNER JOIN BI_R2D2_ARTURITO.BI_RANGO_TURNOS BI_RTU
@@ -601,12 +615,12 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
  CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_DESCUENTOS_APLICADOS_POR_MES AS
 	SELECT
-		BI_TI.anio AS Anio,
-		BI_TI.mes AS Mes,
-		CAST(
-			(100*(SUM(BI_V.total_promociones)+SUM(BI_V.total_descuentos)))/SUM(total_venta)
-			AS DECIMAL(10,2)
-		) [Porcentaje Descuento]
+		BI_TI.anio AS [Anio],
+		BI_TI.mes AS [Mes],
+		BI_R2D2_ARTURITO.CalcularPorcentaje(
+			SUM(BI_V.total_promociones)+SUM(BI_V.total_descuentos),
+			SUM(total_venta)
+		) AS [Porcentaje Descuentos (%)]
 	FROM BI_R2D2_ARTURITO.BI_VENTA BI_V
 		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_TI
 			ON BI_V.id_tiempo = BI_TI.id_tiempo
@@ -623,10 +637,10 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
 
  CREATE VIEW BI_R2D2_ARTURITO.TOP_TRES_CATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE AS
 	SELECT TOP 3
-		CAT_PROD.descripcion_categoria AS Categoria,
-		BI_TI.anio AS Anio,
-		BI_TI.cuatrimestre AS Cuatrimestre, 
-		SUM(DESC_X_CAT.total_promocion) AS [Total descuentos aplicados]
+		CAT_PROD.descripcion_categoria AS [Categoria],
+		BI_TI.anio AS [Anio],
+		BI_TI.cuatrimestre AS [Cuatrimestre], 
+		SUM(DESC_X_CAT.total_promocion) AS [Total Descuentos Aplicados]
 	FROM BI_R2D2_ARTURITO.BI_DESCUENTO_POR_CATEGORIZACION DESC_X_CAT
 		INNER JOIN BI_R2D2_ARTURITO.BI_CATEGORIZACION_PRODUCTOS CAT_PROD
 			ON DESC_X_CAT.id_categorizacion = CAT_PROD.id_categorizacion
@@ -645,12 +659,12 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
  * promociones para cada cuatrimestre de cada año.
  ************************************************************************************/
 
-  CREATE VIEW BI_R2D2_ARTURITO.TOP_TRES_SUBCATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE AS
+ CREATE VIEW BI_R2D2_ARTURITO.TOP_TRES_SUBCATEGORIAS_MAYOR_DESCUENTO_POR_CUATRIMESTRE AS
 	SELECT TOP 3
-		CAT_PROD.descripcion_subcategoria AS Subategoria,
-		BI_TI.anio AS Anio,
-		BI_TI.cuatrimestre AS Cuatrimestre, 
-		SUM(DESC_X_CAT.total_promocion) AS [Total descuentos aplicados]
+		CAT_PROD.descripcion_subcategoria AS [Subcategoria],
+		BI_TI.anio AS [Anio],
+		BI_TI.cuatrimestre AS [Cuatrimestre], 
+		SUM(DESC_X_CAT.total_promocion) AS [Total Descuentos Aplicados]
 	FROM BI_R2D2_ARTURITO.BI_DESCUENTO_POR_CATEGORIZACION DESC_X_CAT
 		INNER JOIN BI_R2D2_ARTURITO.BI_CATEGORIZACION_PRODUCTOS CAT_PROD
 			ON DESC_X_CAT.id_categorizacion = CAT_PROD.id_categorizacion
@@ -668,64 +682,64 @@ CREATE VIEW BI_R2D2_ARTURITO.VENTA_PROMEDIO_MENSUAL AS
  /* 7) Porcentaje de cumplimiento de envíos en los tiempos programados por
 sucursal por año/mes (desvío)*/
 
- CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_ENVIOS_A_TIEMPO_PROGRAMADO_MESYANIO AS
+ CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_ENVIOS_A_TIEMPO_PROGRAMADO_MES_Y_ANIO AS
 	SELECT
-		BI_SU.nombre as sucursal,
-		BI_T.mes as mes,
-		BI_T.anio as anio,
-		SUM(BI_HE.cant_envios) as cantidad_envios,
-		(SUM(BI_HE.cant_envios_a_tiempo)/SUM(BI_HE.cant_envios))*100 as porcentaje_cant_envios_a_tiempo
-
+		BI_SU.nombre AS [Sucursal],
+		BI_T.anio AS [Anio],
+		BI_T.mes AS [Mes],
+		SUM(BI_HE.cant_envios) AS [Cantidad Envios],
+		BI_R2D2_ARTURITO.CalcularPorcentaje(
+			SUM(BI_HE.cant_envios_a_tiempo),
+			SUM(BI_HE.cant_envios)
+		) AS [Porcentaje Envios a Tiempo (%)]
 	FROM BI_R2D2_ARTURITO.BI_HECHO_ENVIO BI_HE
 		INNER JOIN BI_R2D2_ARTURITO.BI_SUCURSAL BI_SU
 			ON BI_SU.id_sucursal = BI_HE.id_sucursal
 		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_T
 			ON BI_T.id_tiempo =BI_HE.id_tiempo
-
 	GROUP BY 
-	BI_SU.nombre,BI_T.mes,BI_T.anio
-
+		BI_SU.nombre,
+		BI_T.mes,
+		BI_T.anio
  GO
 
  /*
  8) Cantidad de envíos por rango etario de clientes para cada cuatrimestre de
 cada año.
  */
- CREATE VIEW BI_R2D2_ARTURITO.CANT_ENVIOS_XRANGOET_CLIENTE_XCUATRIMESTRE AS
+ CREATE VIEW BI_R2D2_ARTURITO.CANTIDAD_ENVIOS_SEGUN_RANGO_ETARIO_POR_CUATRIMESTRE AS
 	SELECT
-		BI_T.cuatrimestre as cuatrimestre,
-		BI_T.anio as anio,
-		SUM(BI_HE.cant_envios)as cantidad_envios,
-		BI_RE.rango_etario
-
+		BI_T.anio AS [Anio],
+		BI_T.cuatrimestre AS [Cuatrimestre],
+		SUM(BI_HE.cant_envios) AS [Cantidad Envios],
+		BI_RE.rango_etario AS [Rango Etario]
 	FROM BI_R2D2_ARTURITO.BI_HECHO_ENVIO BI_HE
 		INNER JOIN BI_R2D2_ARTURITO.BI_TIEMPO BI_T
 			ON BI_T.id_tiempo =BI_HE.id_tiempo
 		INNER JOIN BI_R2D2_ARTURITO.BI_RANGO_ETARIO BI_RE
 			ON BI_RE.id_rango_etario = BI_HE.id_rango_etario_cliente
-
 	GROUP BY 
-	BI_T.cuatrimestre,BI_T.anio,BI_RE.rango_etario
+		BI_T.cuatrimestre,
+		BI_T.anio,
+		BI_RE.rango_etario
 GO
 
 /*
 9) Las 5 localidades (tomando la localidad del cliente) con mayor costo de envío.
 */
 
-CREATE VIEW BI_R2D2_ARTURITO.CINCO_LOCALIDADES_MAYOR_COSTO_ENVIO AS
-	SELECT  TOP 5
-		BI_UB.localidad as localidad,
-		BI_UB.provincia as provincia,
-		SUM(total_costo_envios) as costo_de_envio
-
+CREATE VIEW BI_R2D2_ARTURITO.TOP_CINCO_LOCALIDADES_MAYOR_COSTO_ENVIO AS
+	SELECT TOP 5
+		BI_UB.localidad AS [Localidad],
+		BI_UB.provincia AS [Provincia],
+		SUM(total_costo_envios) AS [Costo Envio]
 	FROM BI_R2D2_ARTURITO.BI_HECHO_ENVIO BI_HE
 		INNER JOIN BI_R2D2_ARTURITO.BI_UBICACION BI_UB
 			ON BI_HE.id_ubicacion_cliente = BI_UB.id_ubicacion
-
 	GROUP BY
-	BI_UB.localidad,BI_UB.provincia
-	ORDER BY SUM(total_costo_envios)desc
-
+		BI_UB.localidad,
+		BI_UB.provincia
+	ORDER BY 3 DESC
 GO
 
 /************************************************************************************
@@ -736,10 +750,10 @@ GO
  ************************************************************************************/
  CREATE VIEW BI_R2D2_ARTURITO.TOP_TRES_SUCURSALES_MAYOR_IMPORTE_PAGO_CUOTAS AS
 	SELECT TOP 3
-		BI_S.nombre AS Sucursal,
-		BI_TI.anio AS Anio,
-		BI_TI.mes AS Mes,
-		BI_MP.descripcion AS [Medio de Pago],
+		BI_S.nombre AS [Sucursal],
+		BI_TI.anio AS [Anio],
+		BI_TI.mes AS [Mes],
+		BI_MP.descripcion AS [Medio Pago],
 		SUM(BI_P.total_pago) AS [Importe pago en Cuotas]
 	FROM BI_R2D2_ARTURITO.BI_PAGO BI_P
 		INNER JOIN BI_R2D2_ARTURITO.BI_SUCURSAL BI_S
@@ -763,7 +777,7 @@ GO
  ************************************************************************************/
  CREATE VIEW BI_R2D2_ARTURITO.IMPORTE_PROMEDIO_CUOTA_SEGUN_RANGO_ETARIO_CLIENTE AS
 	SELECT
-		BI_RE.rango_etario AS rango_etario_cliente,
+		BI_RE.rango_etario AS [Rango Etario Cliente],
 		AVG(BI_P.total_pago/BI_P.cuotas) AS [Importe promedio]
 	FROM BI_R2D2_ARTURITO.BI_PAGO BI_P
 		INNER JOIN BI_R2D2_ARTURITO.BI_RANGO_ETARIO BI_RE
@@ -782,9 +796,12 @@ GO
  CREATE VIEW BI_R2D2_ARTURITO.PORCENTAJE_DESCUENTO_APLICADO_SEGUN_MEDIO_PAGO AS
 	SELECT
 		BI_MP.descripcion AS [Medio de Pago],
-		BI_TI.anio AS Anio,
-		BI_TI.cuatrimestre AS Cuatrimestre,
-		(100*SUM(BI_P.total_descuento_aplicado)/SUM(BI_P.total_pago + BI_P.total_descuento_aplicado)) AS [Porcentaje Descuento Aplicado]
+		BI_TI.anio AS [Anio],
+		BI_TI.cuatrimestre AS [Cuatrimestre],
+		BI_R2D2_ARTURITO.CalcularPorcentaje(
+			SUM(BI_P.total_descuento_aplicado),
+			SUM(BI_P.total_pago + BI_P.total_descuento_aplicado)
+		) AS [Porcentaje Descuento Aplicado (%)]
 	FROM BI_R2D2_ARTURITO.BI_PAGO BI_P
 		INNER JOIN BI_R2D2_ARTURITO.BI_MEDIO_PAGO BI_MP
 			ON BI_P.id_medio_pago = BI_MP.id_medio_pago
