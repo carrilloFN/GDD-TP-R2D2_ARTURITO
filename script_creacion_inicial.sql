@@ -63,7 +63,7 @@ GO
 -- Tabla SUBCATEGORIA
 CREATE TABLE R2D2_ARTURITO.SUBCATEGORIA (
     id_subcategoria BIGINT PRIMARY KEY,
-    descripcion VARCHAR(50) NULL,
+    descripcion VARCHAR(50) NULL
 );
 GO
 
